@@ -125,6 +125,24 @@ class FleiACFAdminColumns
 
             $fgroup_fields = acf_get_fields($fgroup);
             foreach ($fgroup_fields as $field) {
+
+                foreach ($field['sub_fields'] as $sub_field) {
+
+                    if (!isset($sub_field[self::ACF_SETTING_NAME . '_enabled']) || $sub_field[self::ACF_SETTING_NAME . '_enabled'] == false) {
+                        continue;
+                    }
+    
+                    if ($is_taxonomy_index && (!isset($sub_field[self::ACF_SETTING_NAME . '_taxonomies']) || (is_array($sub_field[self::ACF_SETTING_NAME . '_taxonomies']) && array_search($screen->taxonomy, $sub_field[self::ACF_SETTING_NAME . '_taxonomies']) === false))) {
+                        continue;
+                    }
+                    if ($is_post_type_index && (!isset($sub_field[self::ACF_SETTING_NAME . '_post_types']) || (is_array($sub_field[self::ACF_SETTING_NAME . '_post_types']) && array_search($screen->post_type, $sub_field[self::ACF_SETTING_NAME . '_post_types']) === false))) {
+                        continue;
+                    }
+    
+                    $this->admin_columns[self::COLUMN_NAME_PREFIX . $field['name'] .'/'. $sub_field['name']] = $sub_field['label'];
+
+                }
+
                 if (!isset($field[self::ACF_SETTING_NAME . '_enabled']) || $field[self::ACF_SETTING_NAME . '_enabled'] == false) {
                     continue;
                 }
@@ -153,6 +171,15 @@ class FleiACFAdminColumns
                 add_filter('manage_' . $screen->taxonomy . '_custom_column', array($this, 'filter_manage_taxonomy_custom_column'), 10, 3); // outputs the columns values for each post
             }
         }
+        
+        add_filter('posts_where', array($this, 'my_posts_where'));
+    }
+
+    public function my_posts_where( $where ) {
+	
+        $where = str_replace("meta_key = 'allgemein_$", "meta_key LIKE 'allgemein_%", $where);
+    
+        return $where;
     }
 
     /**
@@ -169,15 +196,21 @@ class FleiACFAdminColumns
 
             if (array_key_exists($orderby, $this->admin_columns)) {
 
+                $clean_column = $this->get_clean_column($orderby);
+                if (strpos($clean_column,'/') > 0) {
+                    $elements = explode('/', $clean_column, 2 );
+                    $orderby = $elements[0].'_%_'.$elements[1];
+                }
+
                 // this makes sure we sort also when the custom field has never been set on some posts before
                 $meta_query = array(
                     'relation' => 'OR',
-                    array('key' => $this->get_clean_column($orderby), 'compare' => 'NOT EXISTS'), // 'NOT EXISTS' needs to go first for proper sorting
-                    array('key' => $this->get_clean_column($orderby), 'compare' => 'EXISTS'),
+                    array('key' => $orderby, 'compare' => 'NOT EXISTS'), // 'NOT EXISTS' needs to go first for proper sorting
+                    array('key' => $orderby, 'compare' => 'EXISTS'),
                 );
 
                 $query->set('meta_query', $meta_query);
-                $query->set('orderby', 'meta_value');
+
             }
         }
 
@@ -283,7 +316,13 @@ class FleiACFAdminColumns
             $post_id = $taxonomy . '_' . $post_id;
         }
 
-        $field_value = get_field($clean_column, $post_id);
+        if (strpos($clean_column,'/') > 0) {
+            $elements = explode('/', $clean_column, 2 );
+            $sub_field = get_field($elements[0], $post_id);
+            $field_value = $sub_field[$elements[1]];
+        } else {
+            $field_value = get_field($clean_column, $post_id);
+        }
 
         if ($field_value !== '') {
             $render_output = '';
